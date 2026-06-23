@@ -356,10 +356,10 @@ export default function App() {
 
       <main style={{ maxWidth: 560, margin: "0 auto", padding: "20px 16px 96px" }} className="fade" key={tab}>
         {tab === "today" && <Today state={state} save={save} who={who} />}
-        {tab === "ladder" && <Ladder state={state} save={save} />}
+        {tab === "ladder" && <Ladder state={state} save={save} who={who} />}
         {tab === "history" && <History state={state} save={save} who={who} />}
         {tab === "shop" && <Shopping state={state} save={save} />}
-        {tab === "info" && <Info state={state} save={save} />}
+        {tab === "info" && <Info state={state} save={save} who={who} />}
       </main>
 
       <nav style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: C.card, borderTop: `1px solid ${C.line}`, display: "flex", maxWidth: 560, margin: "0 auto" }}>
@@ -380,6 +380,76 @@ function Card({ children, style }) {
 }
 function Eyebrow({ children }) {
   return <div style={{ fontSize: 11, letterSpacing: 1.5, textTransform: "uppercase", color: C.soft, fontWeight: 600, marginBottom: 10 }}>{children}</div>;
+}
+
+const TRACK_OPTIONS = [
+  { id: "feed", label: "🍼 Feed" },
+  { id: "food", label: "🥣 Solids" },
+  { id: "nap", label: "😴 Nap" },
+];
+
+function ScheduleEditor({ state, save }) {
+  const sched = state.schedule;
+  const update = (i, changes) => {
+    const next = sched.map((row, idx) => idx === i ? { ...row, ...changes } : row);
+    save({ ...state, schedule: next });
+  };
+  const toggleTrack = (i, id) => {
+    const row = sched[i];
+    const cur = Array.isArray(row.track) ? row.track : [];
+    const has = cur.includes(id);
+    const track = has ? cur.filter((t) => t !== id) : [...cur, id];
+    update(i, { track: track.length ? track : null });
+  };
+  const remove = (i) => save({ ...state, schedule: sched.filter((_, idx) => idx !== i) });
+  const move = (i, dir) => {
+    const j = i + dir;
+    if (j < 0 || j >= sched.length) return;
+    const next = sched.slice();
+    [next[i], next[j]] = [next[j], next[i]];
+    save({ ...state, schedule: next });
+  };
+  const add = () => save({ ...state, schedule: [...sched, { time: "12:00", item: "New item", track: null }] });
+
+  return (
+    <>
+      <Card style={{ marginBottom: 12 }}>
+        <div style={{ fontSize: 13, color: C.soft, lineHeight: 1.5 }}>
+          Change times and labels, pick what each line logs when tapped, reorder with the arrows, or remove a line. Lines with nothing selected (like "Wake up") show but aren't tappable. Changes save to everyone's phones.
+        </div>
+      </Card>
+
+      {sched.map((row, i) => (
+        <Card key={i} style={{ marginBottom: 8, padding: 12 }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <input value={row.time} onChange={(e) => update(i, { time: e.target.value })} placeholder="time"
+              style={{ width: 96, padding: 9, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 14, fontFamily: "inherit", textAlign: "center" }} />
+            <input value={row.item} onChange={(e) => update(i, { item: e.target.value })} placeholder="label"
+              style={{ flex: 1, padding: 9, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 14, fontFamily: "inherit" }} />
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+            {TRACK_OPTIONS.map((opt) => {
+              const on = Array.isArray(row.track) && row.track.includes(opt.id);
+              return (
+                <button key={opt.id} onClick={() => toggleTrack(i, opt.id)} style={{
+                  background: on ? C.sageDeep : "#fff", color: on ? "#fff" : C.soft,
+                  border: `1px solid ${on ? C.sageDeep : C.line}`, borderRadius: 8, padding: "6px 10px", fontSize: 12.5, fontWeight: 600,
+                }}>{opt.label}</button>
+              );
+            })}
+            <div style={{ flex: 1 }} />
+            <button onClick={() => move(i, -1)} disabled={i === 0} style={{ background: "none", border: `1px solid ${C.line}`, borderRadius: 8, padding: "6px 9px", color: i === 0 ? C.muted : C.soft, fontSize: 13 }}>↑</button>
+            <button onClick={() => move(i, 1)} disabled={i === sched.length - 1} style={{ background: "none", border: `1px solid ${C.line}`, borderRadius: 8, padding: "6px 9px", color: i === sched.length - 1 ? C.muted : C.soft, fontSize: 13 }}>↓</button>
+            <button onClick={() => remove(i)} style={{ background: "none", border: `1px solid ${C.roseBorder}`, borderRadius: 8, padding: "6px 9px", color: C.rose, fontSize: 13 }}>×</button>
+          </div>
+        </Card>
+      ))}
+
+      <button onClick={add} style={{ width: "100%", background: "none", border: `1px dashed ${C.line}`, borderRadius: 10, padding: 12, color: C.sageDeep, fontSize: 14, fontWeight: 600, marginTop: 4 }}>
+        + Add a line
+      </button>
+    </>
+  );
 }
 
 function Today({ state, save, who }) {
@@ -413,6 +483,9 @@ function Today({ state, save, who }) {
     dayFlags: { ...(state.dayFlags || {}), [todayKey]: { status, by: who } },
   });
 
+  const canEdit = who === "Sonia";
+  const [editSchedule, setEditSchedule] = useState(false);
+
   return (
     <>
       <Eyebrow>Right now</Eyebrow>
@@ -437,7 +510,20 @@ function Today({ state, save, who }) {
       )}
 
       <div style={{ height: 20 }} />
-      <Eyebrow>Today's schedule — tap to log</Eyebrow>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <div style={{ fontSize: 11, letterSpacing: 1.5, textTransform: "uppercase", color: C.soft, fontWeight: 600 }}>
+          {editSchedule ? "Edit schedule" : "Today's schedule — tap to log"}
+        </div>
+        {canEdit && (
+          <button onClick={() => setEditSchedule(!editSchedule)} style={{ background: "none", border: "none", color: C.sageDeep, fontSize: 13, fontWeight: 600, padding: 0 }}>
+            {editSchedule ? "Done" : "Edit"}
+          </button>
+        )}
+      </div>
+
+      {editSchedule ? (
+        <ScheduleEditor state={state} save={save} />
+      ) : (
       <Card style={{ padding: 0, overflow: "hidden" }}>
         {state.schedule.map((s, i) => {
           const trackable = Array.isArray(s.track) && s.track.length > 0;
@@ -467,10 +553,11 @@ function Today({ state, save, who }) {
           );
         })}
       </Card>
+      )}
 
       <div style={{ height: 16 }} />
       <div style={{ display: "flex", gap: 8 }}>
-        {[{ id: "wet", emoji: "💧", label: "Wet" }, { id: "dirty", emoji: "💩", label: "Dirty" }, { id: "med", emoji: "💊", label: "Medicine" }, { id: "note", emoji: "📝", label: "Note" }].map((q) => (
+        {[{ id: "dirty", emoji: "💩", label: "Dirty nappy" }, { id: "med", emoji: "💊", label: "Medicine" }, { id: "note", emoji: "📝", label: "Note" }].map((q) => (
           <button key={q.id} onClick={() => setQuickType(quickType === q.id ? null : q.id)} style={{
             flex: 1, background: quickType === q.id ? C.sageSoft : C.card, border: `1px solid ${quickType === q.id ? C.blueBorder : C.line}`, borderRadius: 12, padding: "12px 4px", fontSize: 12.5, fontWeight: 500, color: C.ink,
           }}><div style={{ fontSize: 18 }}>{q.emoji}</div>{q.label}</button>
@@ -486,9 +573,9 @@ function Today({ state, save, who }) {
           <MedInput onSave={(med) => addLog({ type: "med", ...med })} onCancel={() => setQuickType(null)} />
         </Card>
       )}
-      {(quickType === "wet" || quickType === "dirty") && (
+      {quickType === "dirty" && (
         <Card style={{ marginTop: 10 }}>
-          <div style={{ fontSize: 14, marginBottom: 10 }}>Log a {quickType === "wet" ? "wet" : "dirty"} nappy?</div>
+          <div style={{ fontSize: 14, marginBottom: 10 }}>Log a dirty nappy?</div>
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={() => addLog({ type: quickType })} style={{ flex: 1, background: C.sageDeep, color: "#fff", border: "none", borderRadius: 10, padding: 12, fontWeight: 600 }}>Log it</button>
             <button onClick={() => setQuickType(null)} style={{ background: "none", border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 16px", color: C.soft }}>Cancel</button>
@@ -765,12 +852,16 @@ function EditRow({ l, onSave, onCancel }) {
   );
 }
 
-function Ladder({ state, save }) {
-  const set = (n) => save({
-    ...state,
-    ladderStep: n,
-    ladderStartedISO: n === 0 ? null : new Date().toISOString().slice(0, 10),
-  });
+function Ladder({ state, save, who }) {
+  const canEdit = who === "Sonia";
+  const set = (n) => {
+    if (!canEdit) return;
+    save({
+      ...state,
+      ladderStep: n,
+      ladderStartedISO: n === 0 ? null : new Date().toISOString().slice(0, 10),
+    });
+  };
   const { remaining } = stepProgress(state);
   const notStarted = state.ladderStep === 0;
   const [openRecipe, setOpenRecipe] = useState(state.ladderStep > 0 ? state.ladderStep : null);
@@ -780,9 +871,11 @@ function Ladder({ state, save }) {
       <Eyebrow>The iMAP milk ladder</Eyebrow>
       <Card style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 14, lineHeight: 1.5, color: C.soft }}>
-          Tap a step name to set it as current — this updates everyone's phones and, from step 1 onward, restarts the {state.cadenceDays}-day timer from today.{" "}
+          {canEdit
+            ? <>Tap a step name to set it as current — this updates everyone's phones and, from step 1 onward, restarts the {state.cadenceDays}-day timer from today.{" "}</>
+            : <>Only Sonia can change the current step. You can view every step and its recipe here.{" "}</>}
           {notStarted
-            ? "The ladder hasn't started — Hector is on no dairy. Tap step 1 when you're ready to begin."
+            ? (canEdit ? "The ladder hasn't started — Hector is on no dairy. Tap step 1 when you're ready to begin." : "The ladder hasn't started — Hector is on no dairy.")
             : `On step ${state.ladderStep} since ${fmtDay(state.ladderStartedISO)}${remaining > 0 ? `, ${remaining} day${remaining === 1 ? "" : "s"} to go.` : "."}`}
         </div>
       </Card>
@@ -799,8 +892,9 @@ function Ladder({ state, save }) {
             border: `1px solid ${current ? (isZero ? C.roseBorder : C.blueBorder) : C.line}`,
           }}>
             <div style={{ display: "flex", alignItems: "stretch" }}>
-              <button onClick={() => set(s.n)} style={{
+              <button onClick={() => set(s.n)} disabled={!canEdit} style={{
                 display: "flex", gap: 14, flex: 1, textAlign: "left", background: "none", border: "none", padding: 14, alignItems: "flex-start",
+                cursor: canEdit ? "pointer" : "default",
               }}>
                 <div style={{
                   minWidth: 30, height: 30, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
@@ -810,7 +904,7 @@ function Ladder({ state, save }) {
                   border: `1px solid ${current ? (isZero ? C.rose : C.sage) : C.line}`,
                 }}>{done ? "✓" : s.n}</div>
                 <div>
-                  <div style={{ fontWeight: 600, fontSize: 15, color: current ? (isZero ? C.rose : C.sageDeep) : C.ink, opacity: done ? 0.6 : 1 }}>{s.food}</div>
+                  <div style={{ fontWeight: 600, fontSize: 15, color: current ? (isZero ? C.rose : C.sageDeep) : C.ink, opacity: done ? 0.6 : 1 }}>{s.food}{current ? " · current" : ""}</div>
                   <div style={{ fontSize: 13, color: C.soft, marginTop: 2, lineHeight: 1.4, opacity: done ? 0.6 : 1 }}>{s.note}</div>
                 </div>
               </button>
@@ -911,7 +1005,6 @@ function History({ state, save }) {
         dayKeys.map((key) => {
           const dayLogs = byDay[key].slice().sort((a, b) => new Date(b.t) - new Date(a.t));
           const milk = dayLogs.reduce((s, l) => s + (l.type === "feed" && l.ml ? l.ml : 0), 0);
-          const wet = dayLogs.filter((l) => l.type === "wet").length;
           const dirty = dayLogs.filter((l) => l.type === "dirty").length;
           const flag = (state.dayFlags || {})[key];
           return (
@@ -928,8 +1021,7 @@ function History({ state, save }) {
                   )}
                 </div>
                 <div style={{ fontSize: 12, color: C.soft }}>
-                  {milk > 0 && <span>🍼 {milk} ml</span>}{milk > 0 && (wet || dirty) ? " · " : ""}
-                  {wet > 0 && <span>💧 {wet}</span>}{wet > 0 && dirty > 0 ? " · " : ""}
+                  {milk > 0 && <span>🍼 {milk} ml</span>}{milk > 0 && dirty > 0 ? " · " : ""}
                   {dirty > 0 && <span>💩 {dirty}</span>}
                 </div>
               </div>
@@ -1011,18 +1103,20 @@ function ShopItem({ it, last, onToggle, onRemove }) {
   );
 }
 
-function Info({ state, save }) {
+function Info({ state, save, who }) {
+  const canEdit = who === "Sonia";
   const setContact = (i, value) => {
     const contacts = state.contacts.map((c, idx) => (idx === i ? { ...c, value } : c));
     save({ ...state, contacts });
   };
+  const hasNumber = (v) => v && /\d/.test(v);
 
   return (
     <>
       <Eyebrow>If Hector reacts</Eyebrow>
       <Card style={{ background: C.roseSoft, borderColor: C.roseBorder, marginBottom: 16 }}>
         <div style={{ fontSize: 14, lineHeight: 1.6, color: C.ink }}>
-          <strong style={{ color: C.rose }}>Mild</strong> (a few hives, mild tummy upset): stop the food, give antihistamine if prescribed, watch closely, message Sonia.<br /><br />
+          <strong style={{ color: C.rose }}>Mild</strong> (a few hives, mild tummy upset, diarrhea): stop the food, watch closely, message Sonia.<br /><br />
           <strong style={{ color: C.rose }}>Severe</strong> — any swelling of lips/tongue/throat, difficulty breathing, wheeze, persistent cough, floppiness or pale/blue colour: <strong>call 999 now</strong>, say "anaphylaxis", use adrenaline auto-injector if prescribed, lie him flat with legs raised.
         </div>
       </Card>
@@ -1034,13 +1128,22 @@ function Info({ state, save }) {
             <div style={{ fontSize: 14, fontWeight: 500, color: c.urgent ? C.rose : C.ink }}>{c.label}</div>
             {c.urgent ? (
               <a href={`tel:${c.value}`} style={{ fontSize: 15, fontWeight: 600, color: C.rose, textDecoration: "none" }}>{c.value} →</a>
-            ) : (
+            ) : canEdit ? (
               <input value={c.value} onChange={(e) => setContact(i, e.target.value)}
                 style={{ textAlign: "right", border: "none", background: "none", fontSize: 14, color: C.soft, fontFamily: "inherit", maxWidth: 160 }} />
+            ) : hasNumber(c.value) ? (
+              <a href={`tel:${c.value.replace(/\s/g, "")}`} style={{ fontSize: 14, fontWeight: 600, color: C.sageDeep, textDecoration: "none" }}>{c.value} →</a>
+            ) : (
+              <span style={{ fontSize: 14, color: C.soft }}>—</span>
             )}
           </div>
         ))}
       </Card>
+      {!canEdit && (
+        <div style={{ fontSize: 12, color: C.soft, marginTop: -8, marginBottom: 16, paddingLeft: 4 }}>
+          Tap a number to call. Only Sonia can edit these.
+        </div>
+      )}
 
       <Eyebrow>Daily reminders</Eyebrow>
       <Card>
