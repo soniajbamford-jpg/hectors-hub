@@ -185,6 +185,7 @@ const DEFAULT_STATE = {
   ],
   logs: [],
   shopping: [],
+  overtime: [], // { id, dateISO, hours, note, by }
   dayFlags: {}, // { "Mon Jun 22 2026": { status: "fine"|"check", by: "Klara" } }
 };
 
@@ -300,6 +301,7 @@ export default function App() {
     try { localStorage.setItem("hectorsHubWho", name); } catch {}
   };
 
+  const canSeeHours = who === "Sonia" || who === "Oscar" || who === "Klara";
   const tabs = [
     { id: "today", label: "Today" },
     { id: "ladder", label: "Ladder" },
@@ -625,6 +627,13 @@ function Today({ state, save, who }) {
           }}>⚠️ Please check notes</button>
         </div>
       </Card>
+
+      {(who === "Sonia" || who === "Oscar" || who === "Klara") && (
+        <>
+          <div style={{ height: 24 }} />
+          <HoursEntry state={state} save={save} who={who} />
+        </>
+      )}
     </>
   );
 }
@@ -976,7 +985,7 @@ const RATINGS = [
   { score: 3, label: "Excellent", desc: "Finished most or all" },
 ];
 
-function History({ state, save }) {
+function History({ state, save, who }) {
   // group logs from the last 7 days by day, newest day first
   const cutoff = new Date();
   cutoff.setHours(0, 0, 0, 0);
@@ -1037,6 +1046,10 @@ function History({ state, save }) {
       <div style={{ fontSize: 12, color: C.soft, textAlign: "center", marginTop: 4 }}>
         Entries older than 7 days drop off this view automatically.
       </div>
+
+      {(who === "Sonia" || who === "Oscar" || who === "Klara") && (
+        <HoursHistory state={state} save={save} />
+      )}
     </>
   );
 }
@@ -1102,6 +1115,123 @@ function ShopItem({ it, last, onToggle, onRemove }) {
     </div>
   );
 }
+
+// shared helpers for overtime
+function overtimeCutoffISO() {
+  const c = new Date();
+  c.setMonth(c.getMonth() - 3);
+  return c.toISOString().slice(0, 10);
+}
+const fmtHrs = (n) => (Number.isInteger(n) ? `${n}` : n.toFixed(2).replace(/\.?0+$/, ""));
+
+// Just the entry form — shown on the Today tab, for recording overtime as it happens
+function HoursEntry({ state, save, who }) {
+  const entries = state.overtime || [];
+  const today = new Date().toISOString().slice(0, 10);
+  const [date, setDate] = useState(today);
+  const [hours, setHours] = useState("");
+  const [note, setNote] = useState("");
+  const [saved, setSaved] = useState(false);
+
+  const cutoffISO = overtimeCutoffISO();
+
+  const add = () => {
+    const h = parseFloat(hours);
+    if (!h || h <= 0) return;
+    const entry = { id: Date.now() + "", dateISO: date, hours: h, note: note.trim(), by: who };
+    const kept = [...entries, entry].filter((e) => (e.dateISO || "") >= cutoffISO);
+    save({ ...state, overtime: kept });
+    setHours(""); setNote(""); setDate(today);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  };
+
+  return (
+    <>
+      <Eyebrow>Record overtime</Eyebrow>
+      <Card>
+        <div style={{ fontSize: 13, color: C.soft, lineHeight: 1.5, marginBottom: 14 }}>
+          Extra hours beyond Klara's normal contracted time. The running record by month is on the History tab.
+        </div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)}
+            style={{ flex: 1, padding: 11, border: `1px solid ${C.line}`, borderRadius: 10, fontSize: 14, fontFamily: "inherit" }} />
+          <div style={{ display: "flex", alignItems: "center", gap: 6, border: `1px solid ${C.line}`, borderRadius: 10, padding: "0 12px", width: 120 }}>
+            <input type="number" inputMode="decimal" step="0.25" value={hours} onChange={(e) => setHours(e.target.value)} placeholder="0"
+              style={{ width: "100%", border: "none", background: "none", fontSize: 16, fontFamily: "inherit", textAlign: "center", padding: "10px 0" }} />
+            <span style={{ fontSize: 13, color: C.soft }}>hrs</span>
+          </div>
+        </div>
+        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="optional note (e.g. late babysitting)"
+          style={{ width: "100%", padding: 11, border: `1px solid ${C.line}`, borderRadius: 10, fontSize: 14, marginBottom: 10, fontFamily: "inherit" }} />
+        <button onClick={add} disabled={!hours || parseFloat(hours) <= 0} style={{
+          width: "100%", background: (!hours || parseFloat(hours) <= 0) ? C.muted : C.sageDeep, color: "#fff", border: "none", borderRadius: 10, padding: 12, fontWeight: 600,
+        }}>Add hours</button>
+        {saved && <div style={{ fontSize: 13, color: C.sageDeep, textAlign: "center", marginTop: 10, fontWeight: 600 }}>Saved — see the History tab for the running total.</div>}
+      </Card>
+    </>
+  );
+}
+
+// Month-grouped overtime record — shown on the History tab
+function HoursHistory({ state, save }) {
+  const entries = (state.overtime || []).filter((e) => (e.dateISO || "") >= overtimeCutoffISO());
+  const remove = (id) => save({ ...state, overtime: (state.overtime || []).filter((e) => e.id !== id) });
+
+  const byMonth = {};
+  entries.forEach((e) => {
+    const key = (e.dateISO || "").slice(0, 7); // YYYY-MM
+    (byMonth[key] = byMonth[key] || []).push(e);
+  });
+  const monthKeys = Object.keys(byMonth).sort((a, b) => (a < b ? 1 : -1));
+  const monthName = (key) => {
+    const [y, m] = key.split("-");
+    return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+  };
+  const grandTotal = entries.reduce((s, e) => s + (e.hours || 0), 0);
+
+  return (
+    <div style={{ marginTop: 26 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
+        <div style={{ fontSize: 11, letterSpacing: 1.5, textTransform: "uppercase", color: C.soft, fontWeight: 600 }}>Overtime — last 3 months</div>
+        <div style={{ fontSize: 12, color: C.soft }}>total {fmtHrs(grandTotal)} hrs</div>
+      </div>
+
+      {monthKeys.length === 0 ? (
+        <Card><div style={{ fontSize: 14, color: C.soft }}>No overtime logged yet. Record it from the Today tab.</div></Card>
+      ) : (
+        monthKeys.map((key) => {
+          const rows = byMonth[key].slice().sort((a, b) => (a.dateISO < b.dateISO ? 1 : -1));
+          const monthTotal = rows.reduce((s, e) => s + (e.hours || 0), 0);
+          return (
+            <div key={key} style={{ marginBottom: 18 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
+                <div style={{ fontFamily: "Fraunces, serif", fontSize: 17, fontWeight: 600 }}>{monthName(key)} overtime</div>
+                <div style={{ fontFamily: "Fraunces, serif", fontSize: 17, fontWeight: 600, color: C.sageDeep }}>{fmtHrs(monthTotal)} hrs</div>
+              </div>
+              <Card style={{ padding: 0 }}>
+                {rows.map((e, i) => (
+                  <div key={e.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: i < rows.length - 1 ? `1px solid ${C.line}` : "none" }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 14 }}>
+                        <span style={{ fontWeight: 600, color: C.sageDeep }}>{fmtHrs(e.hours)} hrs</span>
+                        <span style={{ color: C.soft }}> · {fmtDay(e.dateISO)}</span>
+                        {e.note && <span style={{ color: C.soft }}> — {e.note}</span>}
+                      </div>
+                      {e.by && <div style={{ fontSize: 12, color: C.soft, marginTop: 1 }}>added by {e.by}</div>}
+                    </div>
+                    <button onClick={() => remove(e.id)} style={{ background: "none", border: "none", color: C.soft, fontSize: 18, padding: 4 }}>×</button>
+                  </div>
+                ))}
+              </Card>
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
 
 function Info({ state, save, who }) {
   const canEdit = who === "Sonia";
